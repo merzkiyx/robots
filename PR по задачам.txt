@@ -1,0 +1,141 @@
+TASK 1: Создание API-endpoint
+  Создайте сериализатор для данных роботов в файле serializers.py вашего приложения:
+python
+
+
+Создаем файл: robots/serializers.py
+from rest_framework import serializers
+from .models import Robot
+
+class RobotSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Robot
+        fields = ('model', 'version', 'created')
+ Далее создаем представление (view) и URL-маршрут для API-endpoint в файле views.py и urls.py:
+
+В robots/views.py:
+
+from rest_framework import status
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Robot
+from .serializers import RobotSerializer
+
+@api_view(['POST'])
+def create_robot(request):
+    serializer = RobotSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+В robots/urls.py:
+
+from django.urls import path
+from .views import create_robot
+
+urlpatterns = [
+    path('create-robot/', create_robot, name='create-robot'),
+]
+
+
+
+TASK 2: Генерация Excel-файла
+
+В robots/views.py:
+
+generate_excel_report, которая создает Excel-файл с несколькими страницами, представляя информацию о производстве роботов за последнюю неделю с детализацией по моделям и версиям:
+
+def generate_excel_report(request):
+    # Получаем данные для сводки по роботам за последнюю неделю
+    robot_data = get_weekly_production_summary()
+
+    # Создаем словарь, где ключ - это модель робота, а значение - это список версий и количества роботов
+    summary_dict = {}
+    for robot in robot_data:
+        model = robot['model']
+        version = robot['version']
+        count = robot['count']
+        
+        if model not in summary_dict:
+            summary_dict[model] = []
+        
+        summary_dict[model].append({'version': version, 'count': count})
+
+    # Создаем Excel-файл с несколькими страницами
+    excel_data = []
+    for model, versions in summary_dict.items():
+        sheet_data = [['Модель', 'Версия', 'Количество за неделю']]
+        for version_info in versions:
+            sheet_data.append([model, version_info['version'], version_info['count']])
+        
+        excel_data.append({
+            'sheet_name': model,  
+            'data': sheet_data    
+        })
+
+    response = ExcelResponse(excel_data, output_name='weekly_production_summary.xlsx')
+
+    # Чтобы браузер скачал файл
+    response['Content-Disposition'] = 'attachment; filename=weekly_production_summary.xlsx'
+
+    return response
+
+def get_weekly_production_summary():
+    # Тут мы должны реализовать логику для получения сводки по производству роботов за последнюю неделю
+     и вернуть данные в формате, необходимом для создания Excel-файла.
+     Это может включать в себя запросы к базе данных и обработку данных
+     В этом примере, предположим, что у вас есть функция, которая возвращает такие данные :D
+    data = [
+        {'model': 'R2', 'version': 'D2', 'count': 32},
+        {'model': 'R2', 'version': 'A1', 'count': 41},
+    ]
+    return data
+
+
+В robots/urls.py:
+
+from django.urls import path
+from .views import generate_excel_report
+
+urlpatterns = [
+    path('generate-excel-report/', generate_excel_report, name='generate-excel-report'),
+]
+
+
+TASK 3: Отправка писем клиентам
+
+Создаем signals.py
+
+В  robots/signals.py:
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.core.mail import send_mail
+from .models import Robot
+
+@receiver(post_save, sender=Robot)
+def notify_clients(sender, instance, **kwargs):
+    if instance.in_stock:
+        # Отправляем письмо клиенту, указав модель и версию робота
+        subject = 'Робот в наличии'
+        message = f'Добрый день!\nНедавно вы интересовались нашим роботом модели {instance.model}, версии {instance.version}.\nЭтот робот теперь в наличии. Если вам подходит этот вариант - пожалуйста, свяжитесь с нами.'
+        from_email = 'your@example.com'  # Замените на реальный адрес
+        recipient_list = [instance.customer_email]  # Замените на адрес клиента
+        send_mail(subject, message, from_email, recipient_list)
+  
+
+Далее нужно зарегистрируйте сигнал в приложении:
+
+В robots/apps.py:
+
+from django.apps import AppConfig
+
+class RobotsConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'robots'
+
+    def ready(self):
+        import robots.signals
